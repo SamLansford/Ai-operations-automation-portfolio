@@ -1,0 +1,22 @@
+
+# Environment variables and secrets
+.env
+.env.*
+!.env.example
+
+# Private credentials
+credentials/
+secrets/
+*.pem
+*.key
+
+# Local dependencies
+node_modules/
+
+# Local databases
+*.sqlite
+*.db
+
+# System files
+.DS_Store
+Thumbs.db

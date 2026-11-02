@@ -1,0 +1,85 @@
+{
+  "name": "Portfolio 1 - AI Support Ticket Intake",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "support-ticket-intake",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.2,
+      "position": [
+        0,
+        0
+      ],
+      "id": "b1553f1a-c4f4-4107-b0e2-f3c2ccb5d552",
+      "name": "Webhook",
+      "webhookId": "b307f997-1dd0-4a7b-a617-0b5d9a31d2ab"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "=\n{{ JSON.stringify($json) }}\n",
+        "options": {
+          "responseCode": "={{ $json.isValid ? 200 : 400 }}"
+        }
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        448,
+        0
+      ],
+      "id": "2f7e4523-389b-4668-b4f3-897f8e9e5a95",
+      "name": "Respond to Webhook"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "\nconst ticket = $input.item.json.body ?? {};\n\nconst errors = [];\n\nconst ticketId = ticket.ticketId;\nconst customerEmail = ticket.customerEmail;\nconst message = ticket.message;\n\n// Validate ticket ID\nif (\n  typeof ticketId !== \"string\" ||\n  ticketId.trim() === \"\"\n) {\n  errors.push(\"Invalid ticket ID\");\n}\n\n// Validate customer email\nif (\n  typeof customerEmail !== \"string\" ||\n  !/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(customerEmail)\n) {\n  errors.push(\"Invalid customer email\");\n}\n\n// Validate ticket message\nif (\n  typeof message !== \"string\" ||\n  message.trim() === \"\"\n) {\n  errors.push(\"Invalid ticket message\");\n}\n\nreturn {\n  json: {\n    ticketId: typeof ticketId === \"string\"\n      ? ticketId.trim()\n      : null,\n    customerEmail: typeof customerEmail === \"string\"\n      ? customerEmail.trim()\n      : null,\n    message: typeof message === \"string\"\n      ? message.trim()\n      : null,\n    isValid: errors.length === 0,\n    errors,\n    status: errors.length === 0\n      ? \"VALIDATED\"\n      : \"VALIDATION_ERROR\"\n  }\n};\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        224,
+        0
+      ],
+      "id": "59597096-9bc7-437f-8c66-35516fcac71a",
+      "name": "Validate Ticket"
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Validate Ticket",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Ticket": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "active": false,
+  "id": "0G0j4x3GtVpRCAPa",
+  "versionId": "89fa923e-0cd0-4a14-8095-7b04edca7147",
+  "pinData": {}
+}

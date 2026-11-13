@@ -1,0 +1,19 @@
+node_modules/
+dist/
+.local-reports/
+playwright-report/
+test-results/
+artifacts/
+.env
+.env.*
+
+# Private keys, dumps and temporary diagnostics
+credentials/
+secrets/
+*.pem
+*.key
+*.dump
+*.sql.gz
+*.log
+*.bak
+*.tmp

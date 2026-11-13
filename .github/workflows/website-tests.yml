@@ -1,0 +1,49 @@
+name: Website checks (no deployment)
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+defaults:
+  run:
+    working-directory: website
+permissions:
+  contents: read
+jobs:
+  website:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: website/package-lock.json
+      - run: npm ci --ignore-scripts
+      - run: npm run build
+      - run: npm test
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:browser
+      - name: Generate sanitized HTML summary
+        if: always()
+        run: npm run report
+      - name: Prepare static files and sanitized summary
+        if: always()
+        run: npm run artifact
+      - name: Upload review artifact only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: portfolio-site-and-sanitized-report
+          path: website/artifacts/site
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Preserve sanitized evidence outbox
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sanitized-test-evidence
+          path: website/.local-reports/results-outbox/*.json
+          if-no-files-found: ignore
+          retention-days: 14

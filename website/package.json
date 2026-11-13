@@ -1,0 +1,28 @@
+{
+  "name": "automation-portfolio-website",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "start": "node scripts/start-local.mjs",
+    "dev": "node scripts/start-local.mjs --build",
+    "test": "node scripts/run-recorded-tests.mjs",
+    "test:browser": "node scripts/collect-test-results.mjs capture browser",
+    "report": "node scripts/report.mjs",
+    "artifact": "node scripts/artifact.mjs",
+    "results:import": "node scripts/collect-test-results.mjs import",
+    "results:capture": "node scripts/collect-test-results.mjs capture",
+    "results:retry": "node scripts/collect-test-results.mjs retry"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.65.0",
+    "yaml": "2.9.1"
+  },
+  "dependencies": {
+    "mysql2": "3.24.6"
+  }
+}

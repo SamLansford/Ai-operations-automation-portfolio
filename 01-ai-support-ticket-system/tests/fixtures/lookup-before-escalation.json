@@ -1,0 +1,228 @@
+{
+  "name": "Portfolio 1 - Ticket Lookup - DEMO",
+  "nodes": [
+    {
+      "id": "74977ee9-a149-4830-82a5-4aad719d5448",
+      "name": "Authenticated Demo Ticket Lookup",
+      "webhookId": "a99f60d0-b499-4834-8555-198b20cd81af",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.2,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "support-ticket-lookup-demo",
+        "authentication": "headerAuth",
+        "responseMode": "responseNode",
+        "options": {}
+      }
+    },
+    {
+      "id": "295d02d5-dbf1-46b0-b424-64b5ed224c28",
+      "name": "Validate Demo Ticket Lookup",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const b=$json.body;const valid=b&&typeof b==='object'&&!Array.isArray(b)&&Object.keys(b).length===1&&typeof b.ticketId==='string'&&/^DEMO-[a-f0-9]{64}$/.test(b.ticketId);return {json:valid?{valid:true,ticketId:b.ticketId}:{valid:false,httpStatus:400,error:'INVALID_LOOKUP'}};"
+      }
+    },
+    {
+      "id": "d4af888e-f1fe-42fe-bda2-3350002c2d56",
+      "name": "Demo Lookup Valid?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        440,
+        0
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "5c9f04c9-2302-4464-b1e6-ca875c990a28",
+              "leftValue": "={{ $json.valid }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "e5564978-3b7a-4726-8a8b-57bc9387e23b",
+      "name": "Read Demo Ticket and Audit",
+      "type": "n8n-nodes-base.mySql",
+      "typeVersion": 2.5,
+      "alwaysOutputData": true,
+      "retryOnFail": false,
+      "onError": "continueErrorOutput",
+      "position": [
+        660,
+        -80
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT t.ticket_id,t.customer_message,t.processing_status,t.classification_category,t.classification_reason,t.requires_review,t.created_at,t.updated_at,a.event_type,a.previous_status,a.new_status,a.occurred_at FROM ai_support_portfolio_demo.tickets t LEFT JOIN ai_support_portfolio_demo.ticket_audit a ON a.ticket_id=t.ticket_id WHERE t.ticket_id=SUBSTRING($1,2) ORDER BY a.audit_id LIMIT 50;",
+        "options": {
+          "queryReplacement": "={{ ['~'+$json.ticketId] }}"
+        }
+      }
+    },
+    {
+      "id": "3e2f193f-f8a3-4942-b2c1-b3e061f07551",
+      "name": "Prepare Demo Ticket Detail",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        880,
+        -80
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const rows=$input.all().map(x=>x.json);if(rows.some(r=>r.error))return [{json:{httpStatus:503,error:'LOOKUP_UNAVAILABLE'}}];const row=rows.find(r=>r.ticket_id);if(!row)return [{json:{httpStatus:404,error:'TICKET_NOT_FOUND'}}];return [{json:{httpStatus:200,ticket:{ticketRef:row.ticket_id.slice(-10),message:row.customer_message,status:row.processing_status,category:row.classification_category,reason:row.classification_reason,requiresReview:!!Number(row.requires_review),createdAt:row.created_at,updatedAt:row.updated_at,events:rows.filter(r=>r.event_type).map(r=>({type:r.event_type,from:r.previous_status,to:r.new_status,at:r.occurred_at}))}}}];"
+      }
+    },
+    {
+      "id": "049c864e-f39e-4eb5-9205-c2fa68915883",
+      "name": "Prepare Demo Lookup Error",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        880,
+        120
+      ],
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "return {json:{httpStatus:503,error:'LOOKUP_UNAVAILABLE'}};"
+      }
+    },
+    {
+      "id": "f761f1dd-4933-4fcb-b5ff-40361e94eefe",
+      "name": "Respond to Demo Lookup",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        1100,
+        0
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json) }}",
+        "options": {
+          "responseCode": "={{ $json.httpStatus }}"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Authenticated Demo Ticket Lookup": {
+      "main": [
+        [
+          {
+            "node": "Validate Demo Ticket Lookup",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Demo Ticket Lookup": {
+      "main": [
+        [
+          {
+            "node": "Demo Lookup Valid?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Demo Lookup Valid?": {
+      "main": [
+        [
+          {
+            "node": "Read Demo Ticket and Audit",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond to Demo Lookup",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Demo Ticket and Audit": {
+      "main": [
+        [
+          {
+            "node": "Prepare Demo Ticket Detail",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prepare Demo Lookup Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Demo Ticket Detail": {
+      "main": [
+        [
+          {
+            "node": "Respond to Demo Lookup",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Demo Lookup Error": {
+      "main": [
+        [
+          {
+            "node": "Respond to Demo Lookup",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "saveExecutionProgress": false,
+    "saveManualExecutions": false,
+    "saveDataErrorExecution": "none",
+    "saveDataSuccessExecution": "none",
+    "executionTimeout": 30,
+    "executionOrder": "v1"
+  },
+  "active": false,
+  "pinData": {}
+}

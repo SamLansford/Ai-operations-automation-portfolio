@@ -20,3 +20,15 @@ node_modules/
 # System files
 .DS_Store
 Thumbs.db
+
+# Private local verification receipts and sanitized workflow backups
+.local-reports/
+
+# Installation-specific historical workflow backups (preserved locally)
+01-ai-support-ticket-system/workflows/*-before-*.json
+# Sensitive exports, dumps and transient diagnostics
+*.sql.gz
+*.dump
+*.log
+*.bak
+*.tmp

@@ -1,0 +1,228 @@
+{
+  "name": "Portfolio 1 - Human Review Decisions - DEV",
+  "nodes": [
+    {
+      "id": "0d168a07-7de7-4109-b9f2-1a36c8f3666a",
+      "name": "Authenticated Review Webhook",
+      "webhookId": "bf502faf-cd53-428e-a983-e03a316e9954",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.2,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "support-ticket-review-dev",
+        "authentication": "headerAuth",
+        "responseMode": "responseNode",
+        "options": {}
+      }
+    },
+    {
+      "id": "a2b111fe-bbe7-4227-a984-de30b5db2982",
+      "name": "Validate Review Decision",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "return (function validateDecision() {\n  const body = $input.item.json.body;\n  const fail = () => ({ json: { valid: false, httpStatus: 400, errorCode: 'INVALID_REVIEW_DECISION' } });\n  if (!body || typeof body !== 'object' || Array.isArray(body)) return fail();\n  const allowed = ['ticketId', 'decisionId', 'decision', 'category', 'reason'];\n  if (Object.keys(body).some(key => !allowed.includes(key))) return fail();\n  const bounded = (value, max) => typeof value === 'string' && value.trim().length > 0\n    && Array.from(value.trim()).length <= max;\n  if (!bounded(body.ticketId, 128) || !bounded(body.reason, 500)\n      || typeof body.decisionId !== 'string' || !/^[A-Za-z0-9_-]{1,64}$/.test(body.decisionId)\n      || !['APPROVE', 'REJECT'].includes(body.decision)) return fail();\n  const approve = body.decision === 'APPROVE';\n  if (approve ? !['SHIPPING', 'REFUND', 'BILLING', 'GENERAL'].includes(body.category)\n    : body.category !== undefined) return fail();\n  return { json: { valid: true, ticketId: body.ticketId.trim(), decisionId: body.decisionId,\n    decision: body.decision, category: approve ? body.category : 'UNKNOWN', reason: body.reason.trim(),\n    reviewerId: 'portfolio-dev-reviewer-1', newStatus: approve ? 'APPROVED' : 'REJECTED',\n    executionId: String($execution.id) } };\n})();"
+      }
+    },
+    {
+      "id": "f6324415-577f-4277-b6cc-2b8a0796a44e",
+      "name": "Review Decision Valid?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        480,
+        0
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "5c9f04c9-2302-4464-b1e6-ca875c990a28",
+              "leftValue": "={{ $json.valid }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "cb6cec70-c8e6-4cf7-8560-88d3bef4688e",
+      "name": "Commit Review Decision",
+      "type": "n8n-nodes-base.mySql",
+      "typeVersion": 2.5,
+      "retryOnFail": false,
+      "onError": "continueErrorOutput",
+      "position": [
+        720,
+        -100
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SET @portfolio_review_locked = NULL; SELECT ticket_id INTO @portfolio_review_locked FROM ai_support_portfolio.tickets WHERE ticket_id = SUBSTRING($1,2) FOR UPDATE; UPDATE ai_support_portfolio.tickets SET processing_status = SUBSTRING($2,2), classification_category = SUBSTRING($3,2), classification_reason = SUBSTRING($4,2), requires_review = 0, review_reason = NULL WHERE ticket_id = SUBSTRING($5,2) AND processing_status = 'PENDING_REVIEW' AND requires_review = 1 AND NOT EXISTS (SELECT 1 FROM ai_support_portfolio.ticket_audit WHERE ticket_id = SUBSTRING($6,2) AND event_key = 'HUMAN_REVIEW_DECISION:v1'); SET @portfolio_review_updated = ROW_COUNT(); INSERT INTO ai_support_portfolio.ticket_audit (ticket_id,event_key,event_type,previous_status,new_status,reviewer_id,execution_id,details) SELECT ticket_id,'HUMAN_REVIEW_DECISION:v1','HUMAN_REVIEW_DECIDED','PENDING_REVIEW', processing_status,SUBSTRING($7,2),SUBSTRING($8,2), JSON_OBJECT('decisionId',SUBSTRING($9,2),'decision',SUBSTRING($10,2), 'category',SUBSTRING($11,2),'reason',SUBSTRING($12,2)) FROM ai_support_portfolio.tickets WHERE ticket_id = SUBSTRING($13,2) AND @portfolio_review_updated = 1; SET @portfolio_review_audited = ROW_COUNT(); SELECT t.ticket_id,t.processing_status,a.event_type,a.new_status,a.reviewer_id,a.details, @portfolio_review_updated AS updated_rows,@portfolio_review_audited AS audit_rows FROM (SELECT 1 AS anchor) seed LEFT JOIN ai_support_portfolio.tickets t ON t.ticket_id = SUBSTRING($14,2) LEFT JOIN ai_support_portfolio.ticket_audit a ON a.ticket_id = t.ticket_id AND a.event_key = 'HUMAN_REVIEW_DECISION:v1';",
+        "options": {
+          "queryBatching": "transaction",
+          "queryReplacement": "={{ [$json.ticketId, $json.newStatus, $json.category, $json.reason, $json.ticketId, $json.ticketId, $json.reviewerId, $json.executionId, $json.decisionId, $json.decision, $json.category, $json.reason, $json.ticketId, $json.ticketId].map(value => { if (typeof value !== 'string') throw new Error('Invalid prepared SQL parameter'); return '~' + value; }) }}"
+        }
+      }
+    },
+    {
+      "id": "addb343e-006f-48b8-af31-ab6c8fa06d5d",
+      "name": "Resolve Review Decision",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        960,
+        -100
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "return [(function resolveDecision() {\n  const failure = (httpStatus, errorCode) => ({ json: { httpStatus, errorCode } });\n  // mysql2 can return statement metadata alongside the final SELECT, especially\n  // when a bound reason contains quotes. Resolve the batch once, never per item.\n  const results = $input.all().map(item => item.json);\n  const finalRows = results.filter(row => Object.hasOwn(row, 'updated_rows'));\n  const requests = $('Validate Review Decision').all();\n  if (results.some(row => row.error) || finalRows.length !== 1 || requests.length !== 1) return failure(503, 'REVIEW_UNAVAILABLE');\n  const row = finalRows[0];\n  const input = requests[0].json;\n  if (!row.ticket_id) return failure(404, 'TICKET_NOT_FOUND');\n  const updated = Number(row.updated_rows), audited = Number(row.audit_rows);\n  if (!((updated === 1 && audited === 1) || (updated === 0 && audited === 0))) {\n    return failure(503, 'REVIEW_UNAVAILABLE');\n  }\n  let details;\n  try { details = typeof row.details === 'string' ? JSON.parse(row.details) : row.details; } catch {}\n  const same = row.reviewer_id === input.reviewerId && row.processing_status === input.newStatus\n    && row.new_status === input.newStatus && row.event_type === 'HUMAN_REVIEW_DECIDED'\n    && details?.decisionId === input.decisionId && details?.decision === input.decision\n    && details?.category === input.category && details?.reason === input.reason;\n  if (!same) return failure(409, 'REVIEW_CONFLICT');\n  return { json: { httpStatus: 200, ticketId: row.ticket_id, status: input.newStatus,\n    decisionId: input.decisionId, replayed: updated === 0 } };\n})()];"
+      }
+    },
+    {
+      "id": "5043c17b-0608-4b5a-9503-56b35151043f",
+      "name": "Prepare Review Error",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        960,
+        160
+      ],
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "return (function persistenceFailure() {\n  return { json: { httpStatus: 503, errorCode: 'REVIEW_UNAVAILABLE' } };\n})();"
+      }
+    },
+    {
+      "id": "38e1e834-99de-4fdd-a602-bc03c7701e35",
+      "name": "Respond to Review",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        1200,
+        0
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json) }}",
+        "options": {
+          "responseCode": "={{ $json.httpStatus }}"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Authenticated Review Webhook": {
+      "main": [
+        [
+          {
+            "node": "Validate Review Decision",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Review Decision": {
+      "main": [
+        [
+          {
+            "node": "Review Decision Valid?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Review Decision Valid?": {
+      "main": [
+        [
+          {
+            "node": "Commit Review Decision",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond to Review",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Commit Review Decision": {
+      "main": [
+        [
+          {
+            "node": "Resolve Review Decision",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prepare Review Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Resolve Review Decision": {
+      "main": [
+        [
+          {
+            "node": "Respond to Review",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Review Error": {
+      "main": [
+        [
+          {
+            "node": "Respond to Review",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "saveManualExecutions": false,
+    "saveDataErrorExecution": "none",
+    "saveDataSuccessExecution": "none",
+    "executionTimeout": 60,
+    "executionOrder": "v1",
+    "saveExecutionProgress": false
+  },
+  "active": false,
+  "pinData": {}
+}

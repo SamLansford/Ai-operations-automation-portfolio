@@ -15,6 +15,8 @@ if (!fs.existsSync(path.join(root, "index.html")))
 const port = Number(process.env.PORT || 4173);
 if (!Number.isInteger(port) || port < 1024 || port > 65535)
   throw Error("Invalid local port");
+const worker=process.env.SAFE_VALIDATION_WORKER==='1';
+const validation=worker?null:(await import('./safe-validation.mjs')).createSafeValidation({port,enabled:process.env.SAFE_VALIDATION_ENABLED==='1'});
 const mime = {
   ".html": "text/html; charset=utf-8",
   ".css": "text/css; charset=utf-8",
@@ -26,6 +28,8 @@ const mime = {
 const server = http.createServer((req, res) => {
   res.setHeader("X-Content-Type-Options", "nosniff");
   res.setHeader("Cache-Control", "no-store");
+  if(worker&&(req.url?.startsWith('/api/')||req.url?.startsWith('/__local-demo/'))){res.writeHead(503,{'content-type':'application/json'});res.end(JSON.stringify({error:'ISOLATED_WORKER'}));return;}
+  if(req.url?.startsWith('/api/validation/')){void validation.handle(req,res);return;}
   if(req.url?.startsWith("/api/reliability/")){void handleReliability(req,res,port);return;}
   if (req.url?.startsWith("/__local-demo/")) {
     void forwardLocalDemo(req,res,{port});
@@ -71,4 +75,4 @@ server.listen(port, "127.0.0.1", () =>
   console.log("Portfolio local preview: http://127.0.0.1:" + port),
 );
 for (const sig of ["SIGINT", "SIGTERM"])
-  process.on(sig, () => server.close(() => process.exit(0)));
+  process.on(sig, async () => {await validation?.close();server.close(() => process.exit(0));});

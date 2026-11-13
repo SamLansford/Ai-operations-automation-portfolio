@@ -347,3 +347,7 @@ From the separate website directory, npm.cmd run results:capture -- escalation-p
 ## Public-source boundaries
 
 Historical installation backups (`workflows/*-before-*.json`), private runtime settings and local evidence are intentionally excluded and preserved locally. Reusable sanitized JSON under tests/fixtures is permanent regression input, not raw execution data. The historical demo/reviewer integration runners reference installation-specific private backups and credentials: they are not portable safe isolated tests and may not run from a clean clone without separately authorized setup. Use the documented pure policy/review tests for safe isolated verification. No public demo is deployed by committing these sources.
+
+## Local safe-validation milestone
+
+The integrated website now supports a local-only fixed validation button with actual persisted results. It runs only structural, isolated API/collector and fixture-backed browser checks; it never runs this project’s live workflows, model, ticket database tests or reviewer actions. Verified14 service checks and8 real execution/results-MySQL verification checks passed; the completed safe job saved53 PASS/9 intentional SKIP. Existing ticket services remain running. Final preview reload/smoke was intentionally not performed after minor parent-process refinements, per user stop request. See ../website/README.md and the existing root handoff for current runtime, actual evidence and limitations. No workflow/schema/credential changes, public deployment or Git commit/push in this milestone.

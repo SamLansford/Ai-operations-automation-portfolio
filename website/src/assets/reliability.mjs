@@ -218,5 +218,30 @@ if (root) {
     cursor = null;
     void load();
   });
+  const runButton=root.querySelector('[data-run-safe]'),progress=root.querySelector('[data-validation-progress]');
+  let validationSession=null,running=false,requestId=null;
+  async function availability(){
+    if(!runButton||running)return;
+    try{const r=await fetch('/api/validation/session',{credentials:'same-origin',signal:AbortSignal.timeout(12000)});const b=await r.json();validationSession=r.ok&&b.available?b:null;runButton.disabled=!validationSession||b.busy;
+      if(!running)progress.textContent=validationSession?(b.busy?'Another validation is running. Check availability shortly.':'Ready: fixed isolated/mock checks only. No ticket, database-integration or workflow tests.'):'Safe validation unavailable. No test execution can start.';
+    }catch{validationSession=null;runButton.disabled=true;progress.textContent='Safe validation unavailable. No passing status is assumed.';}
+  }
+  function showJob(job){
+    progress.replaceChildren();progress.append(el('p',job.state+' · '+(job.outcome||'Running')+' · '+(job.durationMs/1000).toFixed(1)+'s · isolated/mock checks'));
+    const list=el('ol');for(const step of job.steps){const li=el('li',step.label+' — '+step.state+(step.outcome?' / '+step.outcome:'')+(step.durationMs!==undefined?' · '+(step.durationMs/1000).toFixed(2)+'s':''));if(step.runId&&step.persistence==='MYSQL'){const b=el('button','Inspect stored checks','text-link');b.type='button';b.addEventListener('click',()=>{void select(step.runId);});li.append(b);}if(step.persistence&&step.persistence!=='MYSQL')li.append(el('span',' · Database persistence not confirmed; retained locally when possible.'));list.append(li);}progress.append(list);
+    if(job.state==='COMPLETED')progress.append(el('p',Object.entries(job.counts).map(([k,v])=>k+': '+v).join(' · ')));
+  }
+  runButton?.addEventListener('click',async()=>{
+    if(running||!validationSession)return;running=true;runButton.disabled=true;requestId??=crypto.randomUUID();progress.textContent='Starting fixed safe validation…';
+    try{const response=await fetch('/api/validation/jobs',{method:'POST',credentials:'same-origin',headers:{'content-type':'application/json','x-validation-csrf':validationSession.csrf,'x-validation-request':requestId},body:'{}',signal:AbortSignal.timeout(12000)});let job=await response.json();if(!response.ok){progress.textContent=response.status===429?'Validation start limit reached. Try again later.':response.status===409?'Validation is already running. Try again after it completes.':'Validation cannot start. Check local service availability.';return;}
+      const until=Date.now()+140000;showJob(job);
+      while(job.state!=='COMPLETED'&&Date.now()<until){await new Promise(r=>setTimeout(r,1000));const r=await fetch('/api/validation/jobs/'+job.jobId,{credentials:'same-origin',signal:AbortSignal.timeout(10000)});if(!r.ok)throw Error('JOB_UNAVAILABLE');job=await r.json();showJob(job);}
+      if(job.state!=='COMPLETED'){progress.append(el('p','Polling deadline reached. No completion or passing status is assumed. The server owns its bounded job.'));return;}
+      requestId=null;const filter=root.querySelector('[data-review-filter]');if(filter)filter.value='all';await load();const stored=[...job.steps].reverse().find(s=>s.runId&&s.persistence==='MYSQL');if(stored)await select(stored.runId);
+    }catch{progress.textContent='Could not confirm validation status. Recorded failures are preserved; retry uses the same request identifier.';}
+    finally{running=false;try{const r=await fetch('/api/validation/session',{credentials:'same-origin',signal:AbortSignal.timeout(12000)});const b=await r.json();validationSession=r.ok&&b.available?b:null;runButton.disabled=!validationSession||b.busy;}catch{runButton.disabled=true;validationSession=null;}}
+  });
+  root.querySelector('[data-refresh]')?.addEventListener('click',()=>{void availability();});
+  void availability();
   void load();
 }

@@ -22,6 +22,7 @@ export const digest = (value) =>
     .digest("hex");
 export function currentFingerprint() {
   const files = [
+    "scripts/safe-validation.mjs", "scripts/safe-validation-runner.mjs", "scripts/validation-network-guard.cjs", "tests/safe-validation.test.mjs",
     "../.github/workflows/website-tests.yml",
     "src/render.mjs",
     "src/demo/app.mjs",
@@ -60,7 +61,7 @@ export function currentFingerprint() {
 export async function connection(role = "reader") {
   const cfg = JSON.parse(
     fs.readFileSync(
-      new URL("../.env.results-" + role + ".json", import.meta.url),
+      (process.env.PORTFOLIO_RESULTS_CONFIG_DIR ? path.join(process.env.PORTFOLIO_RESULTS_CONFIG_DIR, ".env.results-" + role + ".json") : new URL("../.env.results-" + role + ".json", import.meta.url)),
       "utf8",
     ),
   );

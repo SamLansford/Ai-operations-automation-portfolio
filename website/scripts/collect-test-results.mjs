@@ -80,6 +80,7 @@ try {
     ];
     jobs['submission-history'] = [['--test','--test-reporter=tap','../01-ai-support-ticket-system/tests/demo-submission-history.test.mjs'],'tap',null];
     jobs['escalation-policy']=[['--test','--test-reporter=tap','../01-ai-support-ticket-system/tests/escalation-policy.test.mjs','../01-ai-support-ticket-system/tests/policy-workflow.test.mjs'],'tap',null];
+    jobs['validation-service']=[['--test','--test-reporter=tap','tests/safe-validation.test.mjs'],'tap',null];
     const job = jobs[kind];
     if (!job) throw Error("RUNNER_NOT_ALLOWLISTED");
     const fingerprint = currentFingerprint(),
@@ -125,6 +126,7 @@ try {
     }
     if(kind==='submission-history'){run.suite='Submission history isolated HTTP checks';run.dependencyMode='MOCKED';run.limitations.push('In-memory store and automation fixtures; no MySQL or n8n execution.');}
     if(kind==='escalation-policy'){run.suite='DEMO escalation policy and workflow logic';run.dependencyMode='ISOLATED';run.limitations.push('Pure JavaScript and workflow-node VM tests; no real model, webhook or SQL execution.');}
+    if(kind==='validation-service'){run.suite='Safe Validation service security verification';run.dependencyMode='ISOLATED';run.limitations.push('Local API/controller fixtures and isolated child processes. No actual ticket or workflow operations.');}
     if (kind === "lookup") {
       run.suite = "Isolated session lookup checks";
       run.dependencyMode = "MOCKED";

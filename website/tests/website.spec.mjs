@@ -1,6 +1,6 @@
 import { test, expect } from "@playwright/test";
 // Keep routine website checks independent of running automation services.
-test.beforeEach(async ({page})=>{await page.route('**/__local-demo/api/demo/submission-history',r=>r.fulfill({json:{history:[]}}));await page.route('**/api/reliability/**',r=>r.fulfill({json:{runs:[],nextCursor:null,categories:[]}}));await page.route('**/__local-demo/api/demo/ticket-status',r=>r.fulfill({status:503,json:{error:'LOOKUP_UNAVAILABLE'}}));await page.route('**/__local-demo/api/demo/session',r=>r.fulfill({status:503,json:{error:'AUTOMATION_UNAVAILABLE'}}));});
+test.beforeEach(async ({page})=>{await page.route('**/api/validation/**',r=>r.fulfill({status:503,json:{available:false,error:'VALIDATION_UNAVAILABLE'}}));if(process.env.SAFE_VALIDATION_WORKER==='1')await page.route('**/*',r=>{const u=new URL(r.request().url());return u.origin==='http://127.0.0.1:4175'?r.continue():r.abort();});await page.route('**/__local-demo/api/demo/submission-history',r=>r.fulfill({json:{history:[]}}));await page.route('**/api/reliability/**',r=>r.fulfill({json:{runs:[],nextCursor:null,categories:[]}}));await page.route('**/__local-demo/api/demo/ticket-status',r=>r.fulfill({status:503,json:{error:'LOOKUP_UNAVAILABLE'}}));await page.route('**/__local-demo/api/demo/session',r=>r.fulfill({status:503,json:{error:'AUTOMATION_UNAVAILABLE'}}));});
 const routes = [
   "/",
   "/projects/",
@@ -163,7 +163,7 @@ test("No request is made to any automation or external provider", async ({
 }) => {
   const forbidden = [];
   page.on("request", (r) => {
-    if (!r.url().startsWith("http://127.0.0.1:4174/"))
+    if (!r.url().startsWith("http://127.0.0.1:"+(process.env.SAFE_VALIDATION_WORKER==='1'?4175:4174)+"/"))
       forbidden.push(new URL(r.url()).origin);
   });
   for (const route of routes) await page.goto(route);
@@ -299,3 +299,16 @@ test('Policy review keeps valid category and displays saved review reason',async
  await page.route('**/__local-demo/api/demo/ticket-status',r=>r.fulfill({json:{ticket:{ticketRef:'policy1234',status:'PENDING_REVIEW',category:'REFUND',reason:'Broken item refund',requiresReview:true,reviewReason,policyVersion:'demo-escalation-v2',message:'Synthetic refund claim',createdAt:'2026-11-12',updatedAt:'2026-11-12',events:[{type:'HUMAN_REVIEW_REQUESTED',to:'PENDING_REVIEW',at:'2026-11-12'}]}}}));
  await page.goto('/support-ticket/#demo');const frame=page.frameLocator('.demo-frame');await frame.locator('[data-example="refund"]').click();await frame.locator('#submit').click();await expect(frame.locator('#result')).toContainText('REFUND');await expect(frame.locator('#result')).toContainText(reviewReason);await expect(frame.locator('#ticket-detail')).toContainText(reviewReason);await expect(frame.locator('#ticket-detail')).toContainText('demo-escalation-v2');await page.reload();await expect(page.frameLocator('.demo-frame').locator('#ticket-detail')).toContainText(reviewReason);
 });
+
+test('Safe validation unavailable disables execution with an honest status',async({page})=>{await page.goto('/reports/reliability/');await expect(page.locator('[data-run-safe]')).toBeDisabled();await expect(page.locator('[data-validation-progress]')).toContainText('unavailable');});
+test('Safe validation displays progress failures duration and stored individual checks',async({page})=>{
+ const id='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',jobId='bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';let polls=0;
+ await page.route('**/api/validation/session',r=>r.fulfill({json:{available:true,csrf:'f'.repeat(64),busy:false}}));
+ const job=done=>({jobId,state:done?'COMPLETED':'RUNNING',outcome:done?'FAIL':null,durationMs:done?1200:100,counts:{PASS:1,FAIL:1,SKIP:0,ERROR:0},steps:[{id:'structural',label:'Website structure',state:done?'COMPLETED':'RUNNING',outcome:done?'FAIL':null,durationMs:done?1200:undefined,runId:done?id:undefined,persistence:done?'MYSQL':undefined}]});
+ await page.route('**/api/validation/jobs',r=>{const b=r.request().postDataJSON();expect(b).toEqual({});expect(r.request().headers()['x-validation-csrf']).toBe('f'.repeat(64));return r.fulfill({status:202,json:job(false)});});
+ await page.route('**/api/validation/jobs/'+jobId,r=>r.fulfill({json:job(++polls>1)}));
+ const run={runId:id,suite:'Safe Validation - fixture',outcome:'FAIL',environment:'LOCAL',dependencyMode:'MOCKED',provenance:'CAPTURED',observedAt:'2026-11-12T00:00:00.000Z',durationMs:1200,freshness:'CURRENT',limitations:[],counts:{PASS:1,FAIL:1,SKIP:0,ERROR:0},results:[{name:'Actual fixture assertion',outcome:'FAIL',categories:[],durationMs:10,errorCode:'ASSERTION_FAILED',evidence:{}}]};
+ await page.route('**/api/reliability/runs?*',r=>r.fulfill({json:{runs:[run],nextCursor:null,categories:[]}}));await page.route('**/api/reliability/runs/'+id,r=>r.fulfill({json:run}));
+ await page.goto('/reports/reliability/');await expect(page.locator('[data-run-safe]')).toBeEnabled();await page.locator('[data-run-safe]').click();await expect(page.locator('[data-run-safe]')).toBeDisabled();await expect(page.locator('[data-validation-progress]')).toContainText('RUNNING');await expect(page.locator('[data-validation-progress]')).toContainText('COMPLETED');await expect(page.locator('[data-validation-progress]')).toContainText('FAIL: 1');await expect(page.locator('[data-validation-progress]')).toContainText('1.2');await expect(page.locator('[data-detail]')).toContainText('Actual fixture assertion');
+});
+test('Safe validation start rate limit is displayed without inventing results',async({page})=>{await page.route('**/api/validation/session',r=>r.fulfill({json:{available:true,csrf:'f'.repeat(64)}}));await page.route('**/api/validation/jobs',r=>r.fulfill({status:429,json:{error:'START_LIMIT'}}));await page.goto('/reports/reliability/');await page.locator('[data-run-safe]').click();await expect(page.locator('[data-validation-progress]')).toContainText('limit reached');});

@@ -69,3 +69,32 @@ if(demoFrame)window.addEventListener('message',event=>{
  if(event.origin!==location.origin||event.source!==demoFrame.contentWindow||event.data?.type!=='support-demo-height')return;
  const height=event.data.height;if(Number.isFinite(height)&&height>=300&&height<=10000)demoFrame.style.height=Math.ceil(height)+'px';
 });
+
+const showcaseTabs = [...document.querySelectorAll(".showcase-tabs [role=tab]")];
+function syncDemoView() {
+  const reviewer = document.getElementById("reviewer-tab");
+  if (!reviewer || !demoFrame) return;
+  demoFrame.contentWindow?.postMessage({
+    type: "support-demo-view", reviewer: reviewer.getAttribute("aria-selected") === "true"
+  }, location.origin);
+}
+demoFrame?.addEventListener("load", syncDemoView);
+function showDemoTab(selected) {
+  for (const tab of showcaseTabs) {
+    const active = tab === selected;
+    tab.setAttribute("aria-selected", String(active));
+    tab.tabIndex = active ? 0 : -1;
+    document.getElementById(tab.getAttribute("aria-controls")).hidden = !active;
+  }
+  syncDemoView();
+}
+showcaseTabs.forEach((tab, index) => {
+  tab.addEventListener("click", () => showDemoTab(tab));
+  tab.addEventListener("keydown", (event) => {
+    const next = { ArrowLeft: 1-index, ArrowRight: 1-index, Home: 0, End: 1 }[event.key];
+    if (!Number.isInteger(next)) return;
+    event.preventDefault();
+    showDemoTab(showcaseTabs[next]);
+    showcaseTabs[next].focus();
+  });
+});

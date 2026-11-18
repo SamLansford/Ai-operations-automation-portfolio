@@ -45,8 +45,18 @@ export function renderer(base = "/") {
       "Explore documented automation projects, technologies and verification status.",
       `<section class="page-heading wrap"><p class="eyebrow">THE PROJECT INDEX</p><h1>Explore the systems.</h1><p class="intro">Explore the featured local project. Its page explains the business problem, implementation choices and scope of verification.</p></section><section class="wrap section compact"><div class="filters" role="group" aria-label="Filter projects"><button type="button" data-filter="all" aria-pressed="true">All projects</button><button type="button" data-filter="AI workflows" aria-pressed="false">AI workflows</button></div><p id="filter-status" class="sr-only" role="status" aria-live="polite">1 project shown</p><div class="project-grid">${projects.map(card).join("")}</div><aside class="future-card"><span class="eyebrow">ROOM TO GROW</span><h2>The next project belongs here when it’s ready.</h2><p>Future work will be added with implementation notes, evidence and honest deployment status.</p><span class="status planned">Planned · scope not defined</span></aside></section>`,
     );
-  function demo(p) {
-    return '<section class="embedded-demo" id="demo" aria-labelledby="demo-title"><p class="eyebrow">INTERACTIVE DEMO</p><h2 id="demo-title">Try the support-ticket automation.</h2><p>Choose one of 18 fictional test examples or write your own ticket. Submit below to see the real automation result here. The local demo backend and isolated DEMO workflow must be running; no public backend is connected.</p>'+a("reports/reliability/","View Testing &amp; Reliability", "button secondary")+'<iframe title="Interactive support ticket demo" src="'+url('demo-frame/index.html')+'" class="demo-frame"></iframe><p class="small">Fictional data only. The existing protected demo handles validation, rate limits, classification and persistence. No reviewer credentials are sent to this page.</p></section>';
+  function demo() {
+    return `<section class="embedded-demo" id="demo" aria-labelledby="demo-title">
+      <p class="eyebrow">INTERACTIVE DEMO</p>
+      <h2 id="demo-title">Try the support-ticket automation.</h2>
+      <div class="showcase-tabs filters" role="tablist" aria-label="Support ticket demo views">
+        <button type="button" role="tab" id="customer-tab" aria-selected="true" aria-controls="customer-view">Customer View</button>
+        <button type="button" role="tab" id="reviewer-tab" aria-selected="false" aria-controls="reviewer-view" tabindex="-1">Reviewer View</button>
+      </div>
+      <p id="customer-view" role="tabpanel" aria-labelledby="customer-tab">Submit a fictional ticket to see real AI classification, saved status and audit history. Requires the local demo backend.</p>
+      <p id="reviewer-view" role="tabpanel" aria-labelledby="reviewer-tab" hidden>Review pending tickets created in your demo session. Decisions appear in the saved audit timeline.</p>
+      <iframe title="Interactive support ticket demo" src="${url('demo-frame/index.html')}" class="demo-frame"></iframe>
+    </section>`;
   }
   function detail(p) {
     return shell(

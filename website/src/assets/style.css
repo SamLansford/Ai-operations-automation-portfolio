@@ -1035,3 +1035,6 @@ main:focus {
 main>#contact:first-child{margin-top:24px;margin-bottom:20px}
 
 .review-attention{padding:12px;border-left:4px solid #9b3b30;background:#f9e2de;color:#792e22}#review-filter{display:block;max-width:100%;padding:10px;margin:8px 0 16px;border:1px solid #ccd5cc;border-radius:6px}
+
+.showcase-tabs { margin-block: 1rem; }
+.showcase-tabs [aria-selected="true"] { background: #172638; color: white; }

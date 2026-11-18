@@ -95,10 +95,11 @@ form.addEventListener('submit',async event=>{
     const {csrf}=await session();
     const r=await fetch('/api/demo/tickets',{method:'POST',credentials:'same-origin',headers:{'content-type':'application/json','x-demo-csrf':csrf},body:JSON.stringify({...previous,fictional:true}),signal:AbortSignal.timeout(50000)});
     const b=await r.json();
-    if(!r.ok){if(r.status===403)sessionPromise=null;paint('error',r.status===504?'TIMEOUT':'REQUEST NOT COMPLETED','Let’s try that again.',errors[b.error]||'The request could not be completed. Please try again later.');showHistoryReceipt(b);if(r.status>=500&&await loadSavedTicket(previous.requestId))rememberTicket(previous.requestId);await refreshSubmissionHistory();return;}
+    if(!r.ok){if(r.status===403){await renewExpiredSession();previous=null;}paint('error',r.status===504?'TIMEOUT':'REQUEST NOT COMPLETED','Let’s try that again.',errors[b.error]||'The request could not be completed. Please try again later.');showHistoryReceipt(b);if(r.status>=500&&await loadSavedTicket(previous.requestId))rememberTicket(previous.requestId);await refreshSubmissionHistory();return;}
     rememberTicket(previous.requestId);
     if(b.status==='AUTO_ROUTED')paint('success','AUTO_ROUTED',b.category,b.reason,`Saved demo ticket · ${b.ticketRef}`);
     else if(b.status==='PENDING_REVIEW')paint('success','PENDING_REVIEW',(b.category&&b.category!=='UNKNOWN'?b.category+' · Human review required':'A human review is needed.'),b.reviewReason||'The saved ticket requires review. No human decision has been made.',`Saved demo ticket · ${b.ticketRef}`);
+    else if(['APPROVED','REJECTED'].includes(b.status))paint('success',b.status,'Human review completed.','This is the saved review result. Classification and policy history remain unchanged.',`Saved demo ticket · ${b.ticketRef}`);
     else paint('loading','PROCESSING','This ticket is still processing.','The automation already owns this request. Submit the same message shortly to check its saved result.');
     await loadSavedTicket(previous.requestId);showHistoryReceipt(b);await refreshSubmissionHistory();
   }catch(e){paint('error',e.name==='TimeoutError'?'TIMEOUT':'CONNECTION ERROR','The result is not available yet.',e.name==='TimeoutError'?errors.AUTOMATION_TIMEOUT:'Could not reach the local demo service. Check that it is running, then try again.');if(previous&&await loadSavedTicket(previous.requestId))rememberTicket(previous.requestId);await refreshSubmissionHistory();}
@@ -179,9 +180,11 @@ function renderTicketList(){
  if(!ticketIds.length){const p=document.createElement('p');p.textContent='No tickets submitted in this session yet.';list.append(p);return;}
  for(const id of ticketIds){const t=savedTickets.get(id);const button=document.createElement('button');button.type='button';button.className='ticket-row';button.setAttribute('aria-pressed',String(id===selectedTicket));button.textContent=t?'Ticket '+t.ticketRef+' · '+t.status+' · '+(t.category||'Awaiting classification'):'Submitted ticket · load saved details';button.addEventListener('click',()=>{void loadSavedTicket(id);});list.append(button);}
 }
+let reviewerView=false;
+const reviewAttempts=new Map(), reviewing=new Set();
 async function restoreTickets(){
  const data=await session();const key='support-demo-requests:'+data.workspaceId;
- if(workspaceKey===key)return;workspaceKey=key;savedTickets.clear();selectedTicket=null;
+ if(workspaceKey===key)return;workspaceKey=key;savedTickets.clear();reviewAttempts.clear();selectedTicket=null;document.querySelector('#ticket-detail').textContent='Select a ticket to see saved details.';
  try{const stored=JSON.parse(localStorage.getItem(key)||'[]');ticketIds=Array.isArray(stored)?stored.filter(x=>typeof x==='string'&&/^[a-f0-9-]{36}$/i.test(x)).slice(0,25):[];}catch{ticketIds=[];}
  renderTicketList();if(ticketIds.length)await loadSavedTicket(ticketIds[0]);
 }
@@ -195,17 +198,103 @@ async function loadSavedTicket(id){
  try{
  const {csrf}=await session();const r=await fetch('/api/demo/ticket-status',{method:'POST',credentials:'same-origin',headers:{'content-type':'application/json','x-demo-csrf':csrf},body:JSON.stringify({requestId:id}),signal:AbortSignal.timeout(20000)});
  const b=await r.json();if(selectedTicket!==id)return;
+ if(r.status===403){await renewExpiredSession();return;}
  if(!r.ok||!b.ticket){detail.textContent=r.status===404?'Ticket not found in this session. It may belong to an expired or different session.':'Saved details are unavailable. The submission result above is separate; retry Refresh saved status.';return;}
  const t=b.ticket;savedTickets.set(id,t);renderTicketList();detail.replaceChildren();
  const heading=document.createElement('h3');heading.textContent='Ticket '+t.ticketRef;detail.append(heading);
- const facts=[['Saved status',t.status],['AI category',t.category],['Classification reason',t.reason||'No accepted AI explanation yet'],['Human review',t.requiresReview?'Waiting for a reviewer (decisions not enabled here)':t.status==='FAILED'?'Operator attention needed; not in a reviewer decision queue':'Not currently required'],['Review reason',t.reviewReason||'None'],['Policy version',t.policyVersion||'Not available'],['Created',t.createdAt],['Updated',t.updatedAt],['Customer message',t.message]];
+ const facts=[['Saved status',t.status],['AI category',t.category],['Classification reason',t.reason||'No accepted AI explanation yet'],['Human review',t.requiresReview?'Waiting for a reviewer':t.status==='FAILED'?'Operator attention needed; not in a reviewer decision queue':'Not currently required'],['Review reason',t.reviewReason||'None'],['Policy version',t.policyVersion||'Not available'],...(t.decision?[['Review decision',t.decision.decision],['Decision reason',t.decision.reason],['Reviewer',t.decision.reviewerId],['Decided at',t.decision.at]]:[]),['Created',t.createdAt],['Updated',t.updatedAt],['Customer message',t.message]];
  const dl=document.createElement('dl');for(const [label,value]of facts){const dt=document.createElement('dt');dt.textContent=label;const dd=document.createElement('dd');dd.textContent=value;dl.append(dt,dd);}detail.append(dl);
  const title=document.createElement('h4');title.textContent='Saved activity timeline';detail.append(title);const events=document.createElement('ol');
  const labels={TICKET_CREATED:'Ticket received',AI_CLASSIFICATION_ACCEPTED:'AI classification saved',HUMAN_REVIEW_REQUESTED:'Sent for human review',MODEL_UNAVAILABLE:'Classification service failed',HUMAN_REVIEW_DECIDED:'Human review decision saved'};
- for(const event of t.events){const li=document.createElement('li');li.textContent=(labels[event.type]||event.type)+' · '+event.at+(event.to?' · '+event.to:'');events.append(li);}detail.append(events);
- const note=document.createElement('p');note.className='small';note.textContent='Activity is read from persisted audit records (up to 50 events). Times are returned by the database. Human-review actions are not enabled in this demo.';detail.append(note);return true;
+ for(const event of t.events){const li=document.createElement('li');li.textContent=(labels[event.type]||event.type)+' · '+event.at+(event.to?' · '+event.to:'');if(event.type==='HUMAN_REVIEW_DECIDED'&&t.decision?.reason){const reason=document.createElement('p');reason.textContent=t.decision.reason;li.append(reason);}events.append(li);}detail.append(events);
+ const note=document.createElement('p');note.className='small';note.textContent='Activity is read from persisted audit records (up to 50 events). Times are returned by the database. ';detail.append(note);
+ if(reviewerView&&t.status==='PENDING_REVIEW'&&t.requiresReview)addReviewForm(detail,id);
+ return true;
  }catch{if(selectedTicket===id)detail.textContent='Could not load saved details. Check the demo connection and retry.';}
 }
+async function renewExpiredSession() {
+  sessionPromise=null;
+  const detail=document.querySelector('#ticket-detail');
+  detail.textContent='Your demo session expired. Refresh to start a new session.';
+  try {
+    await restoreTickets();
+    detail.textContent='Your previous session expired. Submit a new ticket in Customer View.';
+  } catch {}
+}
+function addReviewForm(detail,id) {
+  const form=document.createElement('form');
+  form.className='session-review-form';
+  const decisionLabel=document.createElement('label');
+  decisionLabel.textContent='Decision';
+  const decision=document.createElement('select');
+  decision.required=true;
+  for (const [value,label] of [['','Choose a decision'],['APPROVE','Approve'],['REJECT','Reject']]) {
+    decision.add(new Option(label,value));
+  }
+  decision.id='session-review-decision';
+  decisionLabel.htmlFor=decision.id;
+  const reasonLabel=document.createElement('label');
+  reasonLabel.textContent='Decision reason (up to 500 characters)';
+  const reason=document.createElement('textarea');
+  reason.required=true;
+  reason.maxLength=500;
+  reason.rows=3;
+  reason.id='session-review-reason';
+  reasonLabel.htmlFor=reason.id;
+  const prior=reviewAttempts.get(id);
+  if(prior){decision.value=prior.decision;reason.value=prior.reason;}
+  const confirm=document.createElement('button');
+  confirm.type='submit';
+  confirm.textContent='Confirm Decision';
+  const status=document.createElement('p');
+  status.setAttribute('role','status');
+  function updateControls(){
+    const busy=reviewing.has(id);
+    decision.disabled=reason.disabled=busy;
+    confirm.disabled=busy||!decision.value||!reason.value.trim()||reason.value.length>500;
+    confirm.textContent=busy?'Saving decision…':'Confirm Decision';
+  }
+  form.addEventListener('input',updateControls);
+  form.addEventListener('submit',async event=>{
+    event.preventDefault();
+    const text=reason.value.trim();
+    if(reviewing.has(id)||!decision.value||!text||reason.value.length>500)return;
+    const previous=reviewAttempts.get(id);
+    const attempt=previous?.decision===decision.value&&previous.reason===text
+      ?previous:{decision:decision.value,reason:text,decisionId:crypto.randomUUID()};
+    reviewAttempts.set(id,attempt);
+    reviewing.add(id);
+    updateControls();
+    try {
+      const {csrf}=await session();
+      const r=await fetch('/api/demo/ticket-decision',{
+        method:'POST',credentials:'same-origin',signal:AbortSignal.timeout(20000),
+        headers:{'content-type':'application/json','x-demo-csrf':csrf},
+        body:JSON.stringify({requestId:id,...attempt})
+      });
+      if(r.status===403){await renewExpiredSession();return;}
+      if(r.ok||r.status===409){if(selectedTicket===id)await loadSavedTicket(id);return;}
+      status.textContent='Decision could not be confirmed. Refresh or retry the same decision.';
+    } catch {
+      status.textContent='Decision could not be confirmed. Refresh or retry the same decision.';
+    } finally {
+      reviewing.delete(id);
+      updateControls();
+      document.querySelector('.session-review-form')?.dispatchEvent(new Event('input'));
+    }
+  });
+  form.append(decisionLabel,decision,reasonLabel,reason,confirm,status);
+  detail.append(form);
+  updateControls();
+}
+if(window.parent!==window)window.addEventListener('message',event=>{
+  if(event.source!==window.parent||event.origin!==location.origin||event.data?.type!=='support-demo-view')return;
+  reviewerView=event.data.reviewer===true;
+  for(const el of document.querySelectorAll('.workspace,.submission-history'))el.hidden=reviewerView;
+  document.querySelector('#tickets-heading').textContent=reviewerView?'Review your demo tickets':'Your support tickets';
+  if(selectedTicket)void loadSavedTicket(selectedTicket);
+  else void restoreTickets().catch(()=>{});
+});
 document.querySelector('#refresh-tickets').addEventListener('click',()=>{if(selectedTicket)void loadSavedTicket(selectedTicket);else void restoreTickets();});
 
 function showHistoryReceipt(body){if(body.historyRecorded===false){const p=document.createElement('p');p.className='history-warning';p.textContent='Submission history could not be confirmed as saved. Ticket processing and its audit are separate; no logging guarantee is made.';result.append(p);}}
@@ -214,7 +303,7 @@ async function refreshSubmissionHistory(){
  try{const {csrf}=await session();const r=await fetch('/api/demo/submission-history',{method:'POST',credentials:'same-origin',headers:{'content-type':'application/json','x-demo-csrf':csrf},body:'{}',signal:AbortSignal.timeout(10000)});const body=await r.json();if(!r.ok||!Array.isArray(body.history)){list.textContent='Submission history is unavailable. Not every request can be recorded when the logger or application is unavailable.';return;}list.replaceChildren();
  if(!body.history.length){list.textContent='No saved submission activity in this session yet. Earlier unrecorded rejections cannot be reconstructed.';return;}
  const labels={REJECTED:'Rejected before automation — no new ticket created by this attempt',PROCESSED:'Ticket successfully processed',PENDING_REVIEW:'Ticket pending human review — no decision made',PROCESSING_FAILED:'Ticket created, but processing failed — operator attention needed',PROCESSING:'Ticket exists and is still processing',UNCONFIRMED:'Outcome unconfirmed — saved ticket could not be verified'};
- for(const event of body.history){const card=document.createElement('article');card.className='submission-event';card.dataset.outcome=event.outcome;const h=document.createElement('h3');h.textContent=labels[event.outcome]||'Recorded submission outcome';const p=document.createElement('p');p.textContent=event.createdAt+' UTC · HTTP '+event.httpStatus+' · Attempt '+event.attemptRef+(event.ticketRef?' · Ticket '+event.ticketRef:'');card.append(h,p);if(event.errorCode){const reason=document.createElement('p');reason.textContent=event.errorCode+' — '+(errors[event.errorCode]||'This request could not be completed.');card.append(reason);}if(event.outcome==='PENDING_REVIEW'){const note=document.createElement('p');note.textContent='This state comes from the saved ticket; reviewer actions require a separately authorized feature.';card.append(note);}list.append(card);}
+ for(const event of body.history){const card=document.createElement('article');card.className='submission-event';card.dataset.outcome=event.outcome;const h=document.createElement('h3');h.textContent=labels[event.outcome]||'Recorded submission outcome';const p=document.createElement('p');p.textContent=event.createdAt+' UTC · HTTP '+event.httpStatus+' · Attempt '+event.attemptRef+(event.ticketRef?' · Ticket '+event.ticketRef:'');card.append(h,p);if(event.errorCode){const reason=document.createElement('p');reason.textContent=event.errorCode+' — '+(errors[event.errorCode]||'This request could not be completed.');card.append(reason);}if(event.outcome==='PENDING_REVIEW'){const note=document.createElement('p');note.textContent='This state comes from the saved ticket; open Reviewer View for the current saved status.';card.append(note);}list.append(card);}
  }catch{list.textContent='Could not load submission activity. Requests may be unrecorded if the logger or application was unavailable.';}
 }
 document.querySelector('#refresh-history')?.addEventListener('click',()=>{void refreshSubmissionHistory();});

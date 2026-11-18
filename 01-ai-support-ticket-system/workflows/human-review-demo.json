@@ -1,0 +1,317 @@
+{
+  "name": "Portfolio 1 - Human Review Workspace - DEMO",
+  "nodes": [
+    {
+      "id": "fbd9f90f-3a05-40c2-bd0d-c097ff9e97a2",
+      "name": "Authenticated DEMO Reviewer Webhook",
+      "webhookId": "337767d9-b0e7-40b1-96a3-b439231158d4",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.2,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "support-ticket-review-demo",
+        "authentication": "headerAuth",
+        "responseMode": "responseNode",
+        "options": {}
+      }
+    },
+    {
+      "id": "8c6e93ed-8487-4c5e-8a68-e20d865e8211",
+      "name": "Validate DEMO Review Request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "function validateReviewRequest(body){\n const fail=()=>({valid:false,httpStatus:400,error:'INVALID_REVIEW_REQUEST'});\n if(!body||typeof body!=='object'||Array.isArray(body)||!['pending','history','detail','decide','session-decide'].includes(body.action))return fail();\n const sessionDecision=body.action==='session-decide';\n const decision=body.action==='decide'||sessionDecision;\n const keys=decision?['action','ticketId','decisionId','decision','reason',...(sessionDecision?['demoActor']:[])]:body.action==='detail'?['action','ticketId']:['action'];\n if(Object.keys(body).some(k=>!keys.includes(k))||Object.keys(body).length!==keys.length)return fail();\n if((body.action==='detail'||decision)&&(typeof body.ticketId!=='string'||!/^DEMO-[A-Za-z0-9_-]{1,123}$/.test(body.ticketId)))return fail();\n if(sessionDecision&&(typeof body.demoActor!=='string'||!/^demo-session-[a-f0-9]{32}$/.test(body.demoActor)))return fail();\n if(decision&&(!/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i.test(body.decisionId||'')||!['APPROVE','REJECT'].includes(body.decision)||typeof body.reason!=='string'||(sessionDecision?(!body.reason.trim()||body.reason.length>500||/[\\u0000-\\u0008\\u000b\\u000c\\u000e-\\u001f]/.test(body.reason)):(body.reason.trim().length<5||body.reason.trim().length>500||/[\\u0000-\\u001f]/.test(body.reason)))))return fail();\n return {valid:true,action:decision?'decide':body.action,ticketId:body.ticketId||'',decisionId:body.decisionId||'',decision:body.decision||'',reason:body.reason?.trim()||'',reviewerId:sessionDecision?body.demoActor:'portfolio-demo-reviewer-1',newStatus:body.decision==='APPROVE'?'APPROVED':'REJECTED'};\n}\nreturn {json:validateReviewRequest($json.body)};"
+      }
+    },
+    {
+      "id": "e75ec83d-c4f3-41eb-8c15-d21840b8fcf4",
+      "name": "DEMO Review Request Valid?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        440,
+        0
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "5c9f04c9-2302-4464-b1e6-ca875c990a28",
+              "leftValue": "={{ $json.valid }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "f0d11c6d-5e5f-4666-8a16-a364a2cdaea3",
+      "name": "DEMO Decision Request?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        660,
+        0
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "5c9f04c9-2302-4464-b1e6-ca875c990a28",
+              "leftValue": "={{ $json.action === \"decide\" }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "d5827cea-fecb-4a68-a37f-2a147aa9f18f",
+      "name": "Commit DEMO Review Decision",
+      "type": "n8n-nodes-base.mySql",
+      "typeVersion": 2.5,
+      "alwaysOutputData": true,
+      "onError": "continueErrorOutput",
+      "position": [
+        880,
+        -150
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": " SET @demo_review_locked=NULL; SELECT ticket_id INTO @demo_review_locked FROM ai_support_portfolio_demo.tickets WHERE ticket_id=SUBSTRING($1,2) FOR UPDATE; UPDATE ai_support_portfolio_demo.tickets SET processing_status=SUBSTRING($2,2),requires_review=0 WHERE ticket_id=SUBSTRING($3,2) AND processing_status='PENDING_REVIEW' AND requires_review=1 AND NOT EXISTS(SELECT 1 FROM ai_support_portfolio_demo.ticket_audit WHERE ticket_id=SUBSTRING($4,2) AND event_key='DEMO_HUMAN_REVIEW_DECISION:v1'); SET @demo_review_updated=ROW_COUNT(); INSERT INTO ai_support_portfolio_demo.ticket_audit(ticket_id,event_key,event_type,previous_status,new_status,reviewer_id,execution_id,details) SELECT ticket_id,'DEMO_HUMAN_REVIEW_DECISION:v1','HUMAN_REVIEW_DECIDED','PENDING_REVIEW',processing_status, SUBSTRING($5,2),SUBSTRING($6,2),JSON_OBJECT('decisionId',SUBSTRING($7,2),'decision',SUBSTRING($8,2),'reason',SUBSTRING($9,2),'policyVersion',policy_version,'originalEscalation',review_reason,'originalCategory',classification_category) FROM ai_support_portfolio_demo.tickets WHERE ticket_id=SUBSTRING($10,2) AND @demo_review_updated=1; SET @demo_review_audited=ROW_COUNT(); SELECT t.ticket_id,t.processing_status,a.reviewer_id,a.new_status,a.details,a.occurred_at,@demo_review_updated updated_rows,@demo_review_audited audit_rows FROM (SELECT 1 x) seed LEFT JOIN ai_support_portfolio_demo.tickets t ON t.ticket_id=SUBSTRING($11,2) LEFT JOIN ai_support_portfolio_demo.ticket_audit a ON a.ticket_id=t.ticket_id AND a.event_key='DEMO_HUMAN_REVIEW_DECISION:v1';",
+        "options": {
+          "queryBatching": "transaction",
+          "queryReplacement": "={{ [$json.ticketId,$json.newStatus,$json.ticketId,$json.ticketId,$json.reviewerId,String($execution.id),$json.decisionId,$json.decision,$json.reason,$json.ticketId,$json.ticketId].map(v=>'~'+v) }}"
+        }
+      }
+    },
+    {
+      "id": "1a72c1a7-2d51-489b-a671-be6e7284fc1a",
+      "name": "Read DEMO Review Workspace",
+      "type": "n8n-nodes-base.mySql",
+      "typeVersion": 2.5,
+      "alwaysOutputData": true,
+      "onError": "continueErrorOutput",
+      "position": [
+        880,
+        150
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT t.ticket_id,LEFT(t.customer_message,1500) customer_message,t.classification_category,t.classification_reason,t.requires_review,t.review_reason,t.processing_status,t.policy_version,t.created_at,t.updated_at,a.audit_id,a.event_type,a.previous_status,a.new_status,a.reviewer_id,a.execution_id,a.details,a.occurred_at\nFROM ai_support_portfolio_demo.tickets t LEFT JOIN ai_support_portfolio_demo.ticket_audit a ON a.ticket_id=t.ticket_id AND SUBSTRING($1,2)='detail'\nWHERE (SUBSTRING($2,2)='pending' AND t.processing_status='PENDING_REVIEW' AND t.requires_review=1)\nOR (SUBSTRING($3,2)='history' AND t.processing_status IN ('APPROVED','REJECTED') AND EXISTS(SELECT 1 FROM ai_support_portfolio_demo.ticket_audit h WHERE h.ticket_id=t.ticket_id AND h.event_key='DEMO_HUMAN_REVIEW_DECISION:v1'))\nOR (SUBSTRING($4,2)='detail' AND t.ticket_id=SUBSTRING($5,2))\nORDER BY t.updated_at DESC,t.ticket_id,a.audit_id LIMIT 50;",
+        "options": {
+          "queryReplacement": "={{ [$json.action,$json.action,$json.action,$json.action,$json.ticketId].map(v=>'~'+v) }}"
+        }
+      }
+    },
+    {
+      "id": "faa64087-242f-4d03-8e0b-77672b4d295c",
+      "name": "Prepare DEMO Review Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1100,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "function resolveReview(input,rows){\n const fail=(httpStatus,error)=>({httpStatus,error});if(rows.some(r=>r.error||(typeof r.message==='string'&&Object.hasOwn(r,'itemIndex')&&!Object.hasOwn(r,'ticket_id'))))return fail(503,'REVIEW_UNAVAILABLE');\n const data=rows.filter(r=>Object.hasOwn(r,'ticket_id'));\n if(input.action==='decide'){\n  if(!data.length)return fail(503,'REVIEW_UNAVAILABLE');\n  const row=data.find(r=>r.ticket_id);if(!row)return fail(404,'TICKET_NOT_FOUND');let details=row.details;try{if(typeof details==='string')details=JSON.parse(details);}catch{return fail(503,'REVIEW_UNAVAILABLE');}\n  const same=row.processing_status===input.newStatus&&row.new_status===input.newStatus&&row.reviewer_id===input.reviewerId&&details?.decisionId===input.decisionId&&details?.decision===input.decision&&details?.reason===input.reason;\n  if(!same)return fail(409,'REVIEW_CONFLICT');if(!((Number(row.updated_rows)===1&&Number(row.audit_rows)===1)||(Number(row.updated_rows)===0&&Number(row.audit_rows)===0)))return fail(503,'REVIEW_UNAVAILABLE');\n  return{httpStatus:200,decision:{ticketId:row.ticket_id,status:row.processing_status,reviewerId:row.reviewer_id,decision:details.decision,reason:details.reason,at:String(row.occurred_at),replayed:Number(row.updated_rows)===0}};\n }\n const ticket=r=>({ticketId:r.ticket_id,message:String(r.customer_message||'').slice(0,1500),category:r.classification_category,reason:String(r.classification_reason||'').slice(0,500),status:r.processing_status,requiresReview:!!Number(r.requires_review),reviewReason:String(r.review_reason||'').slice(0,500),policyVersion:r.policy_version,createdAt:String(r.created_at),updatedAt:String(r.updated_at)});\n if(input.action!=='detail')return{httpStatus:200,tickets:data.filter(r=>r.ticket_id).slice(0,25).map(ticket),limit:25};\n if(!data[0]?.ticket_id)return fail(404,'TICKET_NOT_FOUND');const t=ticket(data[0]);t.events=data.filter(r=>r.event_type).slice(0,50).map(r=>{let d=r.details;try{if(typeof d==='string')d=JSON.parse(d);}catch{d=null;}return{type:r.event_type,from:r.previous_status,to:r.new_status,reviewerId:r.reviewer_id||null,execution:r.execution_id,at:String(r.occurred_at),decision:r.event_type==='HUMAN_REVIEW_DECIDED'?{decision:d?.decision,reason:String(d?.reason||'').slice(0,500)}:null};});return{httpStatus:200,ticket:t};\n}\nreturn [{json:resolveReview($('Validate DEMO Review Request').first().json,$input.all().map(x=>x.json))}];"
+      }
+    },
+    {
+      "id": "b91c9d61-4392-447d-b7ce-0d8af07590b7",
+      "name": "Prepare DEMO Review Error",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1100,
+        250
+      ],
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "return {json:{httpStatus:503,error:'REVIEW_UNAVAILABLE'}};"
+      }
+    },
+    {
+      "id": "a90c0e81-d401-42a2-a461-ec3725a35510",
+      "name": "Respond to DEMO Reviewer",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        1320,
+        0
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json) }}",
+        "options": {
+          "responseCode": "={{ $json.httpStatus }}"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Authenticated DEMO Reviewer Webhook": {
+      "main": [
+        [
+          {
+            "node": "Validate DEMO Review Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate DEMO Review Request": {
+      "main": [
+        [
+          {
+            "node": "DEMO Review Request Valid?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "DEMO Review Request Valid?": {
+      "main": [
+        [
+          {
+            "node": "DEMO Decision Request?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond to DEMO Reviewer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "DEMO Decision Request?": {
+      "main": [
+        [
+          {
+            "node": "Commit DEMO Review Decision",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Read DEMO Review Workspace",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Commit DEMO Review Decision": {
+      "main": [
+        [
+          {
+            "node": "Prepare DEMO Review Response",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prepare DEMO Review Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read DEMO Review Workspace": {
+      "main": [
+        [
+          {
+            "node": "Prepare DEMO Review Response",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prepare DEMO Review Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare DEMO Review Response": {
+      "main": [
+        [
+          {
+            "node": "Respond to DEMO Reviewer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare DEMO Review Error": {
+      "main": [
+        [
+          {
+            "node": "Respond to DEMO Reviewer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "saveExecutionProgress": false,
+    "saveManualExecutions": false,
+    "saveDataErrorExecution": "none",
+    "saveDataSuccessExecution": "none",
+    "executionTimeout": 30,
+    "executionOrder": "v1"
+  },
+  "active": false,
+  "pinData": {}
+}

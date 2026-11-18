@@ -12,3 +12,12 @@
 #refresh-tickets{font:inherit;font-size:13px;padding:10px 14px;border:1px solid #195c46;border-radius:6px;background:#195c46;color:#fff}
 
 .submission-history{margin:28px 0;padding:24px;border:1px solid #c7d1c6;border-radius:12px;background:#fffef9}.submission-event{padding:14px;margin-top:12px;border-left:4px solid #195c46;background:#edf2e9}.submission-event h3{font-size:16px;margin:0 0 8px}.submission-event p{font-size:12px;overflow-wrap:anywhere}.submission-event[data-outcome=REJECTED],.submission-event[data-outcome=PROCESSING_FAILED],.submission-event[data-outcome=UNCONFIRMED]{border-color:#a24a28;background:#fff1e5}.history-warning{font-weight:600;color:#8a3520}#refresh-history{padding:10px 14px;border-radius:6px;border:1px solid #195c46;background:#195c46;color:#fff}.checks-only .submission-history{display:none}
+
+.workspace[hidden], .submission-history[hidden] { display: none; }
+#ticket-detail button + button { margin-left: .5rem; }
+
+.session-review-form { display: grid; gap: .75rem; }
+.session-review-form label { display: grid; gap: .25rem; }
+.session-review-form select { width: fit-content; max-width: 100%; font: inherit; padding: .4rem; }
+.session-review-form button { justify-self: start; }
+#ticket-detail ol p { white-space: pre-wrap; overflow-wrap: anywhere; }

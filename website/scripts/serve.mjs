@@ -17,6 +17,8 @@ if (!Number.isInteger(port) || port < 1024 || port > 65535)
   throw Error("Invalid local port");
 const worker=process.env.SAFE_VALIDATION_WORKER==='1';
 const validation=worker?null:(await import('./safe-validation.mjs')).createSafeValidation({port,enabled:process.env.SAFE_VALIDATION_ENABLED==='1'});
+const reviewer=worker?null:(await import('./reviewer-api.mjs')).createReviewerAPI({port});
+const reviewerAssets={'/reviewer/':'index.html','/reviewer/index.html':'index.html','/reviewer/app.mjs':'app.mjs','/reviewer/style.css':'style.css'};
 const mime = {
   ".html": "text/html; charset=utf-8",
   ".css": "text/css; charset=utf-8",
@@ -30,9 +32,11 @@ const server = http.createServer((req, res) => {
   res.setHeader("Cache-Control", "no-store");
   if(worker&&(req.url?.startsWith('/api/')||req.url?.startsWith('/__local-demo/'))){res.writeHead(503,{'content-type':'application/json'});res.end(JSON.stringify({error:'ISOLATED_WORKER'}));return;}
   if(req.url?.startsWith('/api/validation/')){void validation.handle(req,res);return;}
+  if(!worker&&req.url?.startsWith('/api/reviewer/')){void reviewer.handle(req,res);return;}
+  if(!worker&&reviewerAssets[req.url]&&['GET','HEAD'].includes(req.method)){const asset=reviewerAssets[req.url];res.setHeader('Content-Security-Policy',contentPolicy(false));res.writeHead(200,{'content-type':asset.endsWith('.html')?'text/html; charset=utf-8':asset.endsWith('.css')?'text/css; charset=utf-8':'text/javascript; charset=utf-8'});res.end(req.method==='HEAD'?undefined:fs.readFileSync(new URL('../src/reviewer/'+asset,import.meta.url)));return;}
   if(req.url?.startsWith("/api/reliability/")){void handleReliability(req,res,port);return;}
   if (req.url?.startsWith("/__local-demo/")) {
-    void forwardLocalDemo(req,res,{port});
+    void forwardLocalDemo(req,res,{port,backend:process.env.PORTFOLIO_LOCAL_DEMO_BACKEND});
     return;
   }
   if (!["GET", "HEAD"].includes(req.method)) {
@@ -75,4 +79,4 @@ server.listen(port, "127.0.0.1", () =>
   console.log("Portfolio local preview: http://127.0.0.1:" + port),
 );
 for (const sig of ["SIGINT", "SIGTERM"])
-  process.on(sig, async () => {await validation?.close();server.close(() => process.exit(0));});
+  process.on(sig, async () => {await validation?.close();reviewer?.close();server.close(() => process.exit(0));});

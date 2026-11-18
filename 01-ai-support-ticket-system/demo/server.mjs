@@ -1,4 +1,5 @@
 import {createHistoryStore,historyConfig,ERROR_CODES} from './submission-history.mjs';
+import {readReviewerConfig,reveal} from './reviewer-private.mjs';
 import http from 'node:http';
 import { readFileSync } from 'node:fs';
 import { createHmac, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
@@ -20,6 +21,14 @@ export function validateBody(body) {
     && !/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/.test(text)
     && !/\b[^\s@]+@[^\s@]+\.[a-z]{2,}\b|https?:\/\/|www\.|\b(?:\+?\d[\s().-]?){7,}\b/i.test(text);
 }
+let cachedReviewerKey;
+function getReviewerKey() {
+  const {protectedWebhook}=readReviewerConfig();
+  if (cachedReviewerKey?.encrypted!==protectedWebhook) {
+    cachedReviewerKey={encrypted:protectedWebhook,key:reveal(protectedWebhook)};
+  }
+  return cachedReviewerKey.key;
+}
 export function createDemoServer(options={}) {
   const {secret,webhookKey}=options;
   if(!secret||secret.length<32||!webhookKey||webhookKey.length<32)throw Error('Private demo settings are missing');
@@ -32,7 +41,7 @@ export function createDemoServer(options={}) {
   const timeoutMs=options.timeoutMs??45000,limit=options.limit??12;
   const sign=value=>createHmac('sha256',secret).update(value).digest('hex');
   const equal=(a,b)=>typeof a==='string'&&typeof b==='string'&&/^[a-f0-9]{64}$/.test(a)&&a.length===b.length&&timingSafeEqual(Buffer.from(a),Buffer.from(b));
-  const rates=new Map(),inflight=new Map();let totalActive=0;
+  const rates=new Map(),inflight=new Map();let totalActive=0, activeDecisions=0;
   const assets=new Map([['/support-ticket','index.html'],['/support-ticket/','index.html'],['/support-ticket/app.mjs','app.mjs'],['/support-ticket/style.css','style.css']]);
   const send=(res,status,data)=>{res.writeHead(status,{'content-type':'application/json; charset=utf-8'});res.end(JSON.stringify(data));};
   const fail=(res,status,error)=>send(res,status,{error});
@@ -47,10 +56,10 @@ export function createDemoServer(options={}) {
       if(r.status===409)return {status:409,body:{error:'REQUEST_CONFLICT'}};
       if(![200,202].includes(r.status))return {status:503,body:{error:'AUTOMATION_UNAVAILABLE'}};
       let status=b.processingStatus==='CLASSIFIED'?'AUTO_ROUTED':b.processingStatus;
-      if(!['AUTO_ROUTED','PENDING_REVIEW','PROCESSING'].includes(status))return {status:502,body:{error:'INVALID_AUTOMATION_RESPONSE'}};
+      if(!['AUTO_ROUTED','PENDING_REVIEW','PROCESSING','APPROVED','REJECTED'].includes(status))return {status:502,body:{error:'INVALID_AUTOMATION_RESPONSE'}};
       const category=b.classification?.category;
       if(status==='AUTO_ROUTED'&&!['SHIPPING','REFUND','BILLING','GENERAL'].includes(category))return {status:502,body:{error:'INVALID_AUTOMATION_RESPONSE'}};
-      return {status:r.status,body:{status,ticketRef:ticket.ticketId.slice(-10),...(status==='AUTO_ROUTED'?{category,reason:String(b.classification.reason||'').slice(0,500)}:status==='PENDING_REVIEW'?{category:['SHIPPING','REFUND','BILLING','GENERAL'].includes(category)?category:'UNKNOWN',reason:String(b.classification?.reason||'').slice(0,500),requiresReview:true,reviewReason:String(b.reviewReason||'Review required').slice(0,500)}:{})}};
+      return {status:r.status,body:{status,ticketRef:ticket.ticketId.slice(-10),...(['APPROVED','REJECTED'].includes(status)?{category:['SHIPPING','REFUND','BILLING','GENERAL'].includes(category)?category:'UNKNOWN',reason:String(b.classification?.reason||'').slice(0,500),requiresReview:false}:status==='AUTO_ROUTED'?{category,reason:String(b.classification.reason||'').slice(0,500)}:status==='PENDING_REVIEW'?{category:['SHIPPING','REFUND','BILLING','GENERAL'].includes(category)?category:'UNKNOWN',reason:String(b.classification?.reason||'').slice(0,500),requiresReview:true,reviewReason:String(b.reviewReason||'Review required').slice(0,500)}:{})}};
     }catch(e){return {status:['TimeoutError','AbortError'].includes(e.name)?504:503,body:{error:['TimeoutError','AbortError'].includes(e.name)?'AUTOMATION_TIMEOUT':'AUTOMATION_UNAVAILABLE'}};}
     finally{totalActive--;}
   }
@@ -90,12 +99,13 @@ export function createDemoServer(options={}) {
       res.setHeader('Set-Cookie',`demo_session=${token}.${sign(token)}; HttpOnly; SameSite=Strict; Path=/api/demo; Max-Age=1800`);
       return send(res,200,{csrf:sign('csrf:'+token),workspaceId:sign('workspace:'+token).slice(0,16)});
     }
-    if(!['/api/demo/tickets','/api/demo/ticket-status','/api/demo/submission-history'].includes(path))return fail(res,404,'NOT_FOUND');
+    if(!['/api/demo/tickets','/api/demo/ticket-status','/api/demo/ticket-decision','/api/demo/submission-history'].includes(path))return fail(res,404,'NOT_FOUND');
     if(req.method!=='POST'){res.setHeader('Allow','POST');return fail(res,405,'METHOD_NOT_ALLOWED');}
     const sid=session(req);
     if(req.headers.origin!==origin||!sid||!equal(req.headers['x-demo-csrf'],sign('csrf:'+sid)))return fail(res,403,'REQUEST_NOT_ALLOWED');
     if(req.headers['content-type']?.split(';')[0]!=='application/json')return fail(res,415,'JSON_REQUIRED');
-    if(!rate(req.socket.remoteAddress,path!=='/api/demo/tickets'?'read':'write')){res.setHeader('Retry-After','60');return fail(res,429,'RATE_LIMITED');}
+    const deciding=path==='/api/demo/ticket-decision';
+    if(!rate(req.socket.remoteAddress,deciding?'decision':path!=='/api/demo/tickets'?'read':'write')||(deciding&&!rate(sign('decision:'+sid),'session-decision'))){res.setHeader('Retry-After','60');return fail(res,429,'RATE_LIMITED');}
     if(Number(req.headers['content-length'])>8192){req.resume();return fail(res,413,'REQUEST_TOO_LARGE');}
     let bytes=0,chunks=[];
     try{
@@ -109,6 +119,35 @@ export function createDemoServer(options={}) {
         if(!options.historyStore)return fail(res,503,'HISTORY_UNAVAILABLE');
         try{return send(res,200,{history:await options.historyStore.list(sign('history-owner:'+sid)),retentionHours:24});}catch{return fail(res,503,'HISTORY_UNAVAILABLE');}
       }
+      if (deciding) {
+        if (!b || typeof b !== 'object' || Array.isArray(b) || Object.keys(b).length !== 4 ||
+            typeof b.reason !== 'string' || b.reason.length > 500 || !b.reason.trim() ||
+            /[\u0000-\u0008\u000b\u000c\u000e-\u001f]/.test(b.reason) ||
+            typeof b.requestId !== 'string' || !UUID.test(b.requestId) ||
+            typeof b.decisionId !== 'string' || !UUID.test(b.decisionId) ||
+            !['APPROVE', 'REJECT'].includes(b.decision)) return fail(res,400,'INVALID_DECISION');
+        if (activeDecisions >= 2) return fail(res,429,'DEMO_BUSY');
+        activeDecisions++;
+        try {
+          const ticketId='DEMO-'+sign('ticket:'+sid+':'+b.requestId);
+          const demoActor='demo-session-'+sign('reviewer:'+sid).slice(0,32);
+          const key=(options.getReviewerKey||getReviewerKey)();
+          const response=await (options.fetch||fetch)(target.origin+'/webhook/support-ticket-review-demo',{
+            method:'POST', headers:{'content-type':'application/json','x-demo-review-key':key},
+            body:JSON.stringify({action:'session-decide',ticketId,demoActor,decisionId:b.decisionId,
+              decision:b.decision,reason:b.reason.trim()}),
+            redirect:'error',signal:AbortSignal.timeout(12000)
+          });
+          if (response.status===404) return fail(res,404,'TICKET_NOT_FOUND');
+          if (response.status===409) return fail(res,409,'REVIEW_CONFLICT');
+          if (!response.ok) return fail(res,503,'REVIEW_UNAVAILABLE');
+          const data=await response.json();
+          const status=b.decision==='APPROVE'?'APPROVED':'REJECTED';
+          if(data.decision?.ticketId!==ticketId||data.decision.status!==status)return fail(res,503,'REVIEW_UNAVAILABLE');
+          return send(res,200,{status,replayed:data.decision.replayed===true});
+        } catch { return fail(res,503,'REVIEW_UNAVAILABLE'); }
+        finally { activeDecisions--; }
+      }
       if(path==='/api/demo/ticket-status'){
         if(!b||typeof b!=='object'||Array.isArray(b)||Object.keys(b).length!==1||typeof b.requestId!=='string'||!UUID.test(b.requestId))return fail(res,400,'INVALID_LOOKUP');
         try{
@@ -119,7 +158,7 @@ export function createDemoServer(options={}) {
           if(r.status===404)return fail(res,404,'TICKET_NOT_FOUND');
           if(r.status!==200||!data.ticket)return fail(res,503,'LOOKUP_UNAVAILABLE');
           const t=data.ticket;
-          const ticket={ticketRef:ticketId.slice(-10),message:String(t.message||'').slice(0,1500),status:String(t.status||''),category:String(t.category||''),reason:String(t.reason||'').slice(0,500),requiresReview:t.requiresReview===true,reviewReason:String(t.reviewReason||'').slice(0,500),policyVersion:String(t.policyVersion||'').slice(0,32),createdAt:String(t.createdAt||''),updatedAt:String(t.updatedAt||''),events:Array.isArray(t.events)?t.events.slice(0,50).map(e=>({type:String(e.type||'').slice(0,80),from:e.from===null?null:String(e.from||'').slice(0,40),to:String(e.to||'').slice(0,40),at:String(e.at||'').slice(0,60)})):[]};
+          const ticket={ticketRef:ticketId.slice(-10),message:String(t.message||'').slice(0,1500),status:String(t.status||''),category:String(t.category||''),reason:String(t.reason||'').slice(0,500),requiresReview:t.requiresReview===true,reviewReason:String(t.reviewReason||'').slice(0,500),policyVersion:String(t.policyVersion||'').slice(0,32),decision:t.decision?{decision:String(t.decision.decision||'').slice(0,10),reason:String(t.decision.reason||'').slice(0,500),reviewerId:String(t.decision.reviewerId||'').slice(0,64),at:String(t.decision.at||'').slice(0,40)}:null,createdAt:String(t.createdAt||''),updatedAt:String(t.updatedAt||''),events:Array.isArray(t.events)?t.events.slice(0,50).map(e=>({type:String(e.type||'').slice(0,80),from:e.from===null?null:String(e.from||'').slice(0,40),to:String(e.to||'').slice(0,40),at:String(e.at||'').slice(0,60)})):[]};
           return send(res,200,{ticket});
         }catch{return fail(res,503,'LOOKUP_UNAVAILABLE');}
       }
@@ -137,6 +176,6 @@ export function createDemoServer(options={}) {
   return server;
 }
 if(process.argv[1]===fileURLToPath(import.meta.url)){
-  try{const historyStore=createHistoryStore(historyConfig());const server=createDemoServer({...localConfig(),historyStore});const prune=setInterval(()=>{void historyStore.prune().catch(()=>{});},300000);prune.unref();void historyStore.prune().catch(()=>{});server.on('close',()=>{clearInterval(prune);void historyStore.close();});server.listen(8787,'127.0.0.1',()=>console.log('Local demo: http://127.0.0.1:8787/support-ticket'));}
+  try{const historyStore=createHistoryStore(historyConfig());const port=Number(process.env.PORTFOLIO_DEMO_PORT||8787);if(!Number.isInteger(port)||port<1024||port>65535)throw Error('Invalid local demo port');const origin='http://127.0.0.1:'+port;const server=createDemoServer({...localConfig(),historyStore,origin});const prune=setInterval(()=>{void historyStore.prune().catch(()=>{});},300000);prune.unref();void historyStore.prune().catch(()=>{});server.on('close',()=>{clearInterval(prune);void historyStore.close();});server.listen(port,'127.0.0.1',()=>console.log('Local demo: '+origin+'/support-ticket'));}
   catch{console.error('Cannot start: private demo settings missing/invalid.');process.exitCode=1;}
 }

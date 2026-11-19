@@ -32,3 +32,8 @@ Thumbs.db
 *.log
 *.bak
 *.tmp
+
+# Local Codex instructions and handoffs
+/AGENTS.md
+/PROJECT_HANDOFF.md
+/website/PROJECT_HANDOFF.md

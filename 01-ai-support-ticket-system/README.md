@@ -2,7 +2,7 @@
 
 **Status:** Completed 18-node intake milestone remains unchanged in ORIGINAL. Milestone A's separate authenticated DEV reviewer and DEV-only terminal-state replay compatibility are implemented and tested. Milestone A is complete, including verified cleanup of synthetic reviewer execution histories created before an authentication-header retention issue was found. Both DEV workflows are inactive. Public deployment is future work.
 
-**Milestone B (2026-11-11): local interactive demo complete.** A lightweight `/support-ticket` page now submits fictional tickets through a protected local backend to a separate authenticated n8n intake and isolated MySQL schema. Real Ollama classification, persistence, retries and failure handling were tested. DEMO is left inactive; nothing is publicly deployed. See [local demo setup](#local-interactive-demo-milestone-b). Milestone A's [testing guide](docs/TESTING_GUIDE.md) remains historical A evidence, not a description of the new demo tests.
+**Milestone B (2026-11-11): local interactive demo complete.** A lightweight `/support-ticket` page now submits fictional tickets through a protected local backend to a separate authenticated n8n intake and isolated MySQL schema. Real Ollama classification, persistence, retries and failure handling were tested. These results describe the local Milestone B verification. Milestone A's [testing guide](docs/TESTING_GUIDE.md) remains historical A evidence, not a description of the new demo tests.
 
 ## Local interactive demo (Milestone B)
 
@@ -25,28 +25,6 @@ The dependency-free Node.js server is [demo/server.mjs](demo/server.mjs); the re
 The session lasts 30 minutes. Rate limits allow 12 POST attempts per minute per client IP and at most two upstream requests in flight; concurrent identical requests share one upstream promise. Retries retain the same UI request ID while the message is unchanged, so n8n's existing fingerprint/claim transaction prevents duplicate processing, including after backend restart within the same signed session. Changed content under an existing request ID yields409. No proxy-forwarded IP header is trusted. The rate limiter is process-local, suitable for this single-process local demo; public/multi-instance deployment needs edge/shared limits.
 
 The backend calls only the fixed local DEMO webhook path, times out upstream requests after45 seconds, and returns only status, category/reason when valid, and a short synthetic reference. SQL errors, fingerprints, customer fields, workflow execution IDs, and private headers are excluded. Static serving uses an exact asset allowlist; `.env` and management routes return404. A CSP blocks third-party scripts, framing and inline code. No n8n management key or reviewer credential is used by browser code or the serving backend.
-
-### Local startup and shutdown
-
-Use the existing private n8n/MySQL/Ollama installation and Node.js24. No package installation or paid service is required. Private configuration lives only in the root ignored `.env`. Never copy it into frontend assets or screenshots. Demo MySQL and webhook credentials are separate encrypted n8n credentials. Workflow imports omit credential references and require deliberate selection of those credentials.
-
-From the repository root, for an explicitly authorized local demo session:
-
-```powershell
-# Publish only the isolated demo; this does NOT publish ORIGINAL or DEV.
-node 01-ai-support-ticket-system/demo/manage.mjs activate
-node 01-ai-support-ticket-system/demo/server.mjs
-```
-
-Open `http://127.0.0.1:8787/support-ticket` (use this exact origin, not localhost). Keep the terminal running. Stop it with Ctrl+C; then unpublish only DEMO:
-
-```powershell
-node 01-ai-support-ticket-system/demo/manage.mjs deactivate
-```
-
-`demo/manage.mjs provision` is **first-time-only provisioning**, requiring explicit schema/account/credential authorization and the existing reviewed source schema. Do not rerun it on this installation. It refuses an already recorded DEMO ID and does not overwrite an existing schema/account. If a provisioning transport failure leaves partial resources, inspect their metadata and resume deliberately; do not drop/recreate credentials or data. An initial transport failure during B was handled this way, preserving the already-created schema/account/credentials before creating the workflow.
-
-Normal authenticated n8n account tools restored management access by creating a dedicated eight-scope development API key, expiring seven days after creation. It has workflow list/read/create/update/activate/deactivate and execution list/read only; existing keys were preserved. The key is operator-only in the ignored `.env`; it is not necessary for serving the page. After expiry, restore valid operator access through normal signed-in key management, or activate/deactivate DEMO through the authenticated n8n editor. Do not bypass authentication or broaden unrelated keys. Webhook and signing secrets must remain private and stable while active demo sessions need replay.
 
 ### Milestone B tests and evidence
 
@@ -180,34 +158,9 @@ node 01-ai-support-ticket-system/tests/review-integration.test.mjs
 
 The integration runner rotates only the dedicated DEV reviewer key, temporarily publishes both DEV workflows, injects/restores a reviewer-only audit failure, and retains fresh synthetic `MILESTONE-A-*` fixtures. It requires local Docker CLI access for synthetic fixture creation/verification using the existing installation; workflows continue to use the restricted runtime credential. It does not print passwords or keys. Use `--provision` only for first-time setup: it applies the narrow grant, imports the credential, backs up DEV, creates the reviewer inactive, and patches the one DEV intake response node. Existing exports prevent accidental repeat provisioning. Tests never modify historical ticket records. Use n8n's credential UI for private credential management; public/demo credential delivery is not part of this milestone.
 
-## Local setup
+## Try the live demo
 
-Reuse an existing n8n/MySQL/Ollama installation; provisioning and credentials are handled privately. No setup script creates databases or grants.
-
-1. Provide the verified two-table schema and a restricted MySQL account. Intake needs ticket SELECT/INSERT, column-specific processing/classification UPDATE, and audit INSERT. Human-review replay additionally needs the narrow audit SELECT grant above. Neither workflow needs DELETE or schema privileges.
-2. Import `workflows/ticket-intake.json` for the completed portfolio workflow. Import `workflows/ticket-intake-dev.json` separately for development. The exports use distinct webhook paths and intentionally omit credential references, pinned inputs, execution history, and instance-level workflow IDs.
-3. Select the project MySQL credential and existing Ollama credential on the imported nodes. Keep root out of workflows.
-4. Confirm the local model is available and keep the workflow inactive until its connections are reviewed.
-
-The portfolio path is `/webhook/support-ticket-intake`; DEV uses `/webhook/support-ticket-intake-dev`. Do not run both against the same synthetic ticket IDs unless deliberately testing shared persistence. The previous three-node ORIGINAL export is preserved separately as a historical rollback artifact; it is not the completed implementation.
-
-Schema prerequisite: `tickets` needs the case-sensitive `ticket_id` primary key, original email/message, SHA-256 fingerprint, execution owner, policy version, classification/review fields, processing status, and timestamps. `ticket_audit` needs an auto-increment audit ID, ticket foreign key, unique `(ticket_id, event_key)`, event/status/owner fields, JSON details, and timestamp. Both tables must use InnoDB and compatible utf8mb4 text encodings. This milestone does not include a database provisioning/migration script; obtain and review the exact schema before reproducing it in a fresh environment.
-
-For automated tests, use the ignored repository `.env` with `N8N_API_URL` (for example `http://localhost:5678/api/v1`) and `N8N_API_KEY`. Required scopes are workflow list/read/update/activate/deactivate and execution list/read. Never commit real values. The integration runner targets the existing project DEV workflow ID; adapt that constant for a different import.
-
-## Demonstration
-
-For a local demonstration, review and temporarily publish only the selected workflow. POST JSON to `http://localhost:5678/webhook/support-ticket-intake` for the portfolio workflow, or use the DEV path for development:
-
-```json
-{
-  "ticketId": "DEMO-UNIQUE-001",
-  "customerEmail": "customer@example.com",
-  "message": "I was charged twice for the same order."
-}
-```
-
-Repeat the body to demonstrate replay; change the message under the same ID to demonstrate 409. Use a fresh synthetic ID for an independent ticket. A review walkthrough can show a sanitized PENDING_REVIEW result from a controlled DEV fixture, clearly labeled as simulated; it must not expose internal controls or the editor. Unpublish the selected workflow afterward. No public deployment exists yet.
+[Open the interactive showcase](https://folk-downloadable-jesus-tracker.trycloudflare.com/support-ticket/). Use Customer View to submit a fictional ticket. Use Reviewer View to act on pending tickets from your session and inspect their saved audit history.
 
 ## Automated tests
 

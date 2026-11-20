@@ -1,18 +1,6 @@
-> Canonical source: `website/` in [Ai-operations-automation-portfolio](https://github.com/SamLansford/Ai-operations-automation-portfolio). The original standalone folder remains preserved locally.
-
 # Automation Portfolio Website
 
-A local employer-facing showcase for AI Support Ticket Automation: real synthetic ticket submission, session-owned ticket lookup, persisted audit history, and a read-only Testing & Reliability dashboard. Public hosting is not deployed.
-
-## Start locally
-
-Requires Node 24+, npm, and built-in Windows PowerShell for privately protected database credentials. Credential loading uses the absolute system executable and its own security module, independent of terminal PATH and Codex. Use npm.cmd in PowerShell if npm.ps1 is blocked; do not weaken execution policy.
-
-    cd "C:\GitHub Projects\Ai-operations-automation-portfolio\website"
-    npm.cmd ci --ignore-scripts
-    npm.cmd run dev
-
-Open http://127.0.0.1:4173/. The portfolio server is loopback-only. Existing ticket backend on 8787 and its n8n DEMO workflows remain running under the user's hands-on testing authorization. This milestone did not restart that backend or change workflow activation. Rebuild and refresh after source edits.
+An employer-facing showcase for AI Support Ticket Automation: real synthetic ticket submission, session-owned ticket lookup, persisted audit history, and a read-only Testing & Reliability dashboard. [Open the live support-ticket demo](https://folk-downloadable-jesus-tracker.trycloudflare.com/support-ticket/).
 
 ## Pages and functionality
 

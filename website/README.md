@@ -1,6 +1,6 @@
 # Automation Portfolio Website
 
-An employer-facing showcase for AI Support Ticket Automation: real synthetic ticket submission, session-owned ticket lookup, persisted audit history, and a read-only Testing & Reliability dashboard. [Open the live support-ticket demo](https://folk-downloadable-jesus-tracker.trycloudflare.com/support-ticket/).
+An employer-facing showcase for AI Support Ticket Automation: real synthetic ticket submission, session-owned ticket lookup, persisted audit history, and a read-only Testing & Reliability dashboard. [Open the live support-ticket demo](https://sam-automation-portfolio.tailaacf08.ts.net/support-ticket/).
 
 ## Pages and functionality
 

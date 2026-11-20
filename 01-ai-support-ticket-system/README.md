@@ -160,7 +160,7 @@ The integration runner rotates only the dedicated DEV reviewer key, temporarily 
 
 ## Try the live demo
 
-[Open the interactive showcase](https://folk-downloadable-jesus-tracker.trycloudflare.com/support-ticket/). Use Customer View to submit a fictional ticket. Use Reviewer View to act on pending tickets from your session and inspect their saved audit history.
+[Open the interactive showcase](https://sam-automation-portfolio.tailaacf08.ts.net/support-ticket/). Use Customer View to submit a fictional ticket. Use Reviewer View to act on pending tickets from your session and inspect their saved audit history.
 
 ## Automated tests
 

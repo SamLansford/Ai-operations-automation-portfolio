@@ -8,7 +8,7 @@ n8n sends fictional support tickets to Ollama for AI classification. Separate bu
 
 The employer showcase has two views for the same demo session. **Customer View** submits tickets and displays their classification, saved status, and audit history. **Reviewer View** lets visitors approve or reject their own pending tickets with a required written reason. Decisions and audit events are saved together. The private reviewer workspace uses separate authentication.
 
-- [Try the interactive support-ticket demo](https://folk-downloadable-jesus-tracker.trycloudflare.com/support-ticket/)
+- [Try the interactive support-ticket demo](https://sam-automation-portfolio.tailaacf08.ts.net/support-ticket/)
 - [Project architecture and verified tests](./01-ai-support-ticket-system/README.md)
 - [Milestone A testing explanations and evidence boundaries](./01-ai-support-ticket-system/docs/TESTING_GUIDE.md)
 - Automated and focused live checks verified session isolation, safe retries, concurrent decisions, rollback and recovery, and saved review reasons.
